@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv venv:*)",
+      "Bash(uv pip install:*)",
+      "Bash(node:*)",
+      "Bash(npm --version:*)",
+      "Bash(brew:*)"
+    ]
+  }
+}

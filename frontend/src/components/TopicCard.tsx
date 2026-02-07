@@ -96,7 +96,7 @@ export function TopicItem({ topic, isNew }: TopicItemProps) {
               <span className="text-sm text-muted-foreground">
                 {topic.article_count}개 기사
               </span>
-              {sentiment && (
+              {sentiment && SentimentIcon && (
                 <>
                   <span className="text-sm text-muted-foreground">&middot;</span>
                   <span

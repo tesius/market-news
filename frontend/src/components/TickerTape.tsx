@@ -32,9 +32,9 @@ export function TickerTape() {
             <span
               className={`flex items-center gap-0.5 text-xs font-medium ${
                 isPositive
-                  ? 'text-emerald-400'
+                  ? 'text-red-400'
                   : isNegative
-                    ? 'text-red-400'
+                    ? 'text-blue-400'
                     : 'text-muted-foreground'
               }`}
             >

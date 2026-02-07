@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timedelta
+from difflib import SequenceMatcher
 from html import unescape
 from typing import Any
 
@@ -14,6 +15,7 @@ from app.models import Article, Keyword, Region
 from app.services.article_scraper import extract_article_body
 
 MAX_PER_KEYWORD = 10
+SIMILARITY_THRESHOLD = 0.55
 
 
 class NewsCollector:
@@ -279,19 +281,36 @@ class NewsCollector:
         return articles
 
     async def _deduplicate_and_save(self, articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Save articles to DB, skipping duplicates by link."""
+        """Save articles to DB, skipping exact URL duplicates and similar titles."""
         new_articles = []
 
         for article_data in articles:
             link = article_data.get("link", "")
+            title = article_data.get("title", "")
+            keyword_tag = article_data.get("keyword_tag", "")
             if not link:
                 continue
 
+            # 1. Exact URL duplicate check
             existing = await self.db.execute(
                 select(Article.id).where(Article.link == link)
             )
             if existing.scalar_one_or_none() is not None:
                 continue
+
+            # 2. Similar title check against existing articles for same keyword
+            if title and keyword_tag:
+                result = await self.db.execute(
+                    select(Article.title)
+                    .where(Article.keyword_tag == keyword_tag)
+                    .order_by(Article.created_at.desc())
+                    .limit(30)
+                )
+                existing_titles = [r[0] for r in result.all()]
+
+                if self._is_similar_to_any(title, existing_titles):
+                    logger.debug(f"Skipping similar article: {title[:60]}")
+                    continue
 
             article = Article(**article_data)
             self.db.add(article)
@@ -301,6 +320,16 @@ class NewsCollector:
             await self.db.commit()
 
         return new_articles
+
+    @staticmethod
+    def _is_similar_to_any(title: str, existing_titles: list[str]) -> bool:
+        """Check if a title is too similar to any existing title."""
+        title_normalized = title.lower().strip()
+        for existing in existing_titles:
+            ratio = SequenceMatcher(None, title_normalized, existing.lower().strip()).ratio()
+            if ratio >= SIMILARITY_THRESHOLD:
+                return True
+        return False
 
     @staticmethod
     def _extract_source(url: str) -> str:

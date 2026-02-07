@@ -43,7 +43,7 @@ async def scheduled_job(session_type: BriefingSession):
 
 
 def setup_scheduler() -> AsyncIOScheduler:
-    """Configure APScheduler: 2x/day to stay within Gemini free tier."""
+    """Configure APScheduler: 3x/day (08:00, 13:00, 18:00 KST)."""
     scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
 
     scheduler.add_job(
@@ -51,6 +51,15 @@ def setup_scheduler() -> AsyncIOScheduler:
         CronTrigger(hour=8, minute=0, timezone="Asia/Seoul"),
         args=[BriefingSession.MORNING],
         id="morning_briefing",
+        max_instances=1,
+        replace_existing=True,
+    )
+
+    scheduler.add_job(
+        scheduled_job,
+        CronTrigger(hour=13, minute=0, timezone="Asia/Seoul"),
+        args=[BriefingSession.MIDDAY],
+        id="midday_check",
         max_instances=1,
         replace_existing=True,
     )

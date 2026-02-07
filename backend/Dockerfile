@@ -6,11 +6,11 @@ WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Copy requirements and install dependencies
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN uv pip install --system --no-cache -r requirements.txt
 
 # Copy application code
-COPY . .
+COPY backend/app/ ./app/
 
 # Create data directory for SQLite
 RUN mkdir -p /data

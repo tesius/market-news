@@ -115,8 +115,10 @@ export function TopicItem({ topic, isNew }: TopicItemProps) {
       {/* Expanded: Summary + tickers + sources */}
       <AccordionContent className="pb-5">
         {/* Summary */}
-        <div className="text-base leading-8 text-muted-foreground sm:text-[17px]">
-          {topic.summary}
+        <div className="space-y-4 text-base leading-8 text-muted-foreground sm:text-[17px]">
+          {topic.summary.split('\n\n').map((paragraph, i) => (
+            <p key={i}>{paragraph}</p>
+          ))}
         </div>
 
         {/* Tickers */}

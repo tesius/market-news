@@ -23,17 +23,18 @@ Write a consolidated analysis that merges all these articles into ONE coherent b
 Tasks:
 1. Write a Korean headline (max 60 chars) capturing the key narrative.
 2. Write a detailed Korean summary (6-10 sentences, magazine-style).
-   - Synthesize the key facts from ALL articles into a coherent narrative.
-   - Explain context and why this matters for investors.
-   - Note any conflicting viewpoints across sources.
-   - End with market outlook/implication.
+   - Split into 2-3 short paragraphs using "\n\n" between them.
+   - Paragraph 1: Core facts and key developments.
+   - Paragraph 2: Context, conflicting viewpoints, and why it matters.
+   - Paragraph 3: Market outlook and investor implications.
+   - Each paragraph should be 2-4 sentences.
 3. Determine overall sentiment: "Bullish", "Bearish", or "Neutral".
 4. Extract all relevant stock tickers mentioned.
 
 Return ONLY valid JSON:
 {{
   "headline": "핵심 내러티브를 담은 헤드라인",
-  "summary": "6-10문장의 통합 분석. 매거진 스타일.",
+  "summary": "첫 번째 문단.\n\n두 번째 문단.\n\n세 번째 문단.",
   "sentiment": "Bullish",
   "tickers": ["NVDA", "005930.KS"]
 }}"""

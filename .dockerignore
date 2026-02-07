@@ -1,0 +1,13 @@
+frontend/
+.git/
+.github/
+.claude/
+.venv/
+__pycache__/
+*.db
+*.log
+.env
+node_modules/
+dist/
+PRD.md
+README.md

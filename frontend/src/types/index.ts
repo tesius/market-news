@@ -34,6 +34,14 @@ export interface TopicSummary {
 export interface TopicSummaryList {
   items: TopicSummary[]
   batch_id: string
+  has_more?: boolean
+}
+
+export interface BatchGroup {
+  batch_id: string
+  date: string
+  session: string
+  topics: TopicSummary[]
 }
 
 export interface MustRead {

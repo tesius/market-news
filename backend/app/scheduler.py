@@ -1,11 +1,12 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from loguru import logger
+from sqlalchemy import delete
 
 from app.database import async_session
-from app.models import BriefingSession
+from app.models import BriefingSession, Article, TopicSummary, Briefing
 from app.services.news_collector import NewsCollector
 from app.services.ai_processor import AIProcessor
 from app.services.briefing_generator import BriefingGenerator
@@ -42,6 +43,25 @@ async def scheduled_job(session_type: BriefingSession):
             logger.error(f"Scheduled job failed: {e}")
 
 
+async def cleanup_old_data(days: int = 30):
+    """Delete data older than the specified number of days."""
+    cutoff = datetime.now() - timedelta(days=days)
+    logger.info(f"Cleaning up data older than {cutoff.isoformat()}")
+
+    async with async_session() as db:
+        try:
+            r1 = await db.execute(delete(TopicSummary).where(TopicSummary.created_at < cutoff))
+            r2 = await db.execute(delete(Article).where(Article.created_at < cutoff))
+            r3 = await db.execute(delete(Briefing).where(Briefing.created_at < cutoff))
+            await db.commit()
+            logger.info(
+                f"Cleanup done: {r1.rowcount} summaries, {r2.rowcount} articles, {r3.rowcount} briefings deleted"
+            )
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Cleanup failed: {e}")
+
+
 def setup_scheduler() -> AsyncIOScheduler:
     """Configure APScheduler: 3x/day (08:00, 13:00, 18:00 KST)."""
     scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
@@ -69,6 +89,14 @@ def setup_scheduler() -> AsyncIOScheduler:
         CronTrigger(hour=18, minute=0, timezone="Asia/Seoul"),
         args=[BriefingSession.EVENING],
         id="evening_wrapup",
+        max_instances=1,
+        replace_existing=True,
+    )
+
+    scheduler.add_job(
+        cleanup_old_data,
+        CronTrigger(hour=3, minute=0, timezone="Asia/Seoul"),
+        id="daily_cleanup",
         max_instances=1,
         replace_existing=True,
     )

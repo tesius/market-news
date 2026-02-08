@@ -84,6 +84,7 @@ class TopicSummaryResponse(BaseModel):
 class TopicSummaryListResponse(BaseModel):
     items: list[TopicSummaryResponse]
     batch_id: str
+    has_more: bool = False
 
 
 # --- Briefing ---

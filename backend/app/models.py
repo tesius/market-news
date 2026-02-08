@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime, date
 
-from sqlalchemy import String, Text, Boolean, Enum, DateTime, Date, Integer, func
+from sqlalchemy import String, Text, Boolean, Enum, DateTime, Date, Integer, Index, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -36,6 +36,9 @@ class Keyword(Base):
 
 class Article(Base):
     __tablename__ = "articles"
+    __table_args__ = (
+        Index("ix_articles_created_at", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -54,6 +57,10 @@ class Article(Base):
 class TopicSummary(Base):
     """Consolidated AI summary per keyword per batch."""
     __tablename__ = "topic_summaries"
+    __table_args__ = (
+        Index("ix_topic_summaries_created_at", "created_at"),
+        Index("ix_topic_summaries_batch_id", "batch_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     keyword_tag: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -70,6 +77,9 @@ class TopicSummary(Base):
 
 class Briefing(Base):
     __tablename__ = "briefings"
+    __table_args__ = (
+        Index("ix_briefings_created_at", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     date: Mapped[date] = mapped_column(Date, nullable=False)

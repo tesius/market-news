@@ -1,6 +1,6 @@
 import asyncio
 import json
-from datetime import datetime, date
+from datetime import datetime
 from collections import defaultdict
 
 from google import genai
@@ -13,30 +13,47 @@ from app.models import Article, TopicSummary, Sentiment
 
 CONSOLIDATION_PROMPT = """You are a senior financial journalist writing a consolidated briefing for a Korean quant developer.
 
-Topic: {keyword} ({region})
-Below are {count} news articles on this topic from various sources:
+Topic keyword: {keyword} ({region})
+Below are {count} news articles collected under this keyword:
 
 {articles_text}
 
-Write a consolidated analysis that merges all these articles into ONE coherent briefing.
+IMPORTANT: These articles share the same search keyword but may cover DIFFERENT stories.
+Your first task is to cluster articles by actual topic similarity based on their titles and content.
+- Articles about the same event/development should be grouped together.
+- Articles about unrelated stories must be separated into different sections.
+- If all articles genuinely cover the same story, return a single section.
 
-Tasks:
-1. Write a Korean headline (max 60 chars) capturing the key narrative.
-2. Write a detailed Korean summary (6-10 sentences, magazine-style).
-   - Split into 2-3 short paragraphs using "\n\n" between them.
+For EACH cluster, write a separate section:
+1. "headline": Korean headline (max 60 chars) capturing that cluster's key narrative.
+2. "summary": Detailed Korean summary (6-10 sentences, magazine-style).
+   - Split into 2-3 short paragraphs using "\\n\\n" between them.
    - Paragraph 1: Core facts and key developments.
    - Paragraph 2: Context, conflicting viewpoints, and why it matters.
    - Paragraph 3: Market outlook and investor implications.
    - Each paragraph should be 2-4 sentences.
-3. Determine overall sentiment: "Bullish", "Bearish", or "Neutral".
-4. Extract all relevant stock tickers mentioned.
+3. "sentiment": "Bullish", "Bearish", or "Neutral" for that cluster.
+4. "tickers": Relevant stock tickers mentioned in that cluster.
+5. "article_indices": Which article numbers (from the list above) belong to this cluster.
 
 Return ONLY valid JSON:
 {{
-  "headline": "핵심 내러티브를 담은 헤드라인",
-  "summary": "첫 번째 문단.\n\n두 번째 문단.\n\n세 번째 문단.",
-  "sentiment": "Bullish",
-  "tickers": ["NVDA", "005930.KS"]
+  "sections": [
+    {{
+      "headline": "첫 번째 토픽 헤드라인",
+      "summary": "첫 번째 문단.\\n\\n두 번째 문단.\\n\\n세 번째 문단.",
+      "sentiment": "Bullish",
+      "tickers": ["NVDA"],
+      "article_indices": [1, 3, 5]
+    }},
+    {{
+      "headline": "두 번째 토픽 헤드라인",
+      "summary": "첫 번째 문단.\\n\\n두 번째 문단.\\n\\n세 번째 문단.",
+      "sentiment": "Bearish",
+      "tickers": ["AAPL"],
+      "article_indices": [2, 4]
+    }}
+  ]
 }}"""
 
 
@@ -47,7 +64,7 @@ class AIProcessor:
         self.client = genai.Client(api_key=settings.gemini_api_key)
 
     async def process_keyword(self, db: AsyncSession, batch_id: str, keyword_tag: str) -> bool:
-        """Generate a consolidated summary for a single keyword's unprocessed articles."""
+        """Generate consolidated summaries for a single keyword's unprocessed articles."""
         result = await db.execute(
             select(Article)
             .where(Article.ai_summary.is_(None), Article.keyword_tag == keyword_tag)
@@ -60,34 +77,41 @@ class AIProcessor:
             return False
 
         region = articles[0].region
-        summary_data = await self._consolidate_articles(keyword_tag, region, articles)
+        sections = await self._consolidate_articles(keyword_tag, region, articles)
 
-        if not summary_data:
+        if not sections:
             return False
 
-        source_refs = [
-            {"id": a.id, "title": a.title, "link": a.link, "source": a.source_name}
-            for a in articles
-        ]
+        for section in sections:
+            # Map article_indices back to actual articles
+            indices = section.get("article_indices", [])
+            section_articles = [articles[i - 1] for i in indices if 1 <= i <= len(articles)]
+            if not section_articles:
+                section_articles = articles  # fallback: assign all
 
-        topic_summary = TopicSummary(
-            keyword_tag=keyword_tag,
-            region=region,
-            batch_id=batch_id,
-            headline=summary_data.get("headline", keyword_tag),
-            summary=summary_data["summary"],
-            sentiment=Sentiment(summary_data["sentiment"]),
-            related_tickers=json.dumps(summary_data.get("tickers", [])),
-            source_articles=json.dumps(source_refs, ensure_ascii=False),
-            article_count=len(articles),
-        )
-        db.add(topic_summary)
+            source_refs = [
+                {"id": a.id, "title": a.title, "link": a.link, "source": a.source_name}
+                for a in section_articles
+            ]
+
+            topic_summary = TopicSummary(
+                keyword_tag=keyword_tag,
+                region=region,
+                batch_id=batch_id,
+                headline=section.get("headline", keyword_tag),
+                summary=section["summary"],
+                sentiment=Sentiment(section["sentiment"]),
+                related_tickers=json.dumps(section.get("tickers", [])),
+                source_articles=json.dumps(source_refs, ensure_ascii=False),
+                article_count=len(section_articles),
+            )
+            db.add(topic_summary)
 
         for a in articles:
             a.ai_summary = "consolidated"
 
         await db.commit()
-        logger.info(f"Consolidated {len(articles)} articles for '{keyword_tag}' -> 1 summary")
+        logger.info(f"Consolidated {len(articles)} articles for '{keyword_tag}' -> {len(sections)} sections")
         return True
 
     async def process_batch(self, db: AsyncSession, batch_id: str) -> int:
@@ -113,40 +137,46 @@ class AIProcessor:
         for keyword_tag, group_articles in groups.items():
             try:
                 region = group_articles[0].region
-                summary_data = await self._consolidate_articles(keyword_tag, region, group_articles)
+                sections = await self._consolidate_articles(keyword_tag, region, group_articles)
 
-                if summary_data:
-                    # Store source article references
-                    source_refs = [
-                        {
-                            "id": a.id,
-                            "title": a.title,
-                            "link": a.link,
-                            "source": a.source_name,
-                        }
-                        for a in group_articles
-                    ]
+                if sections:
+                    for section in sections:
+                        # Map article_indices back to actual articles
+                        indices = section.get("article_indices", [])
+                        section_articles = [group_articles[i - 1] for i in indices if 1 <= i <= len(group_articles)]
+                        if not section_articles:
+                            section_articles = group_articles  # fallback: assign all
 
-                    topic_summary = TopicSummary(
-                        keyword_tag=keyword_tag,
-                        region=region,
-                        batch_id=batch_id,
-                        headline=summary_data.get("headline", keyword_tag),
-                        summary=summary_data["summary"],
-                        sentiment=Sentiment(summary_data["sentiment"]),
-                        related_tickers=json.dumps(summary_data.get("tickers", [])),
-                        source_articles=json.dumps(source_refs, ensure_ascii=False),
-                        article_count=len(group_articles),
-                    )
-                    db.add(topic_summary)
+                        source_refs = [
+                            {
+                                "id": a.id,
+                                "title": a.title,
+                                "link": a.link,
+                                "source": a.source_name,
+                            }
+                            for a in section_articles
+                        ]
+
+                        topic_summary = TopicSummary(
+                            keyword_tag=keyword_tag,
+                            region=region,
+                            batch_id=batch_id,
+                            headline=section.get("headline", keyword_tag),
+                            summary=section["summary"],
+                            sentiment=Sentiment(section["sentiment"]),
+                            related_tickers=json.dumps(section.get("tickers", [])),
+                            source_articles=json.dumps(source_refs, ensure_ascii=False),
+                            article_count=len(section_articles),
+                        )
+                        db.add(topic_summary)
 
                     # Mark individual articles as processed
                     for a in group_articles:
                         a.ai_summary = "consolidated"
 
-                    processed += 1
+                    processed += len(sections)
                     logger.info(
-                        f"Consolidated {len(group_articles)} articles for '{keyword_tag}' -> 1 summary"
+                        f"Consolidated {len(group_articles)} articles for '{keyword_tag}' -> {len(sections)} sections"
                     )
 
                 # Rate limiting
@@ -163,8 +193,11 @@ class AIProcessor:
 
     async def _consolidate_articles(
         self, keyword: str, region, articles: list[Article]
-    ) -> dict | None:
-        """Send all articles for a keyword to Gemini for consolidated analysis."""
+    ) -> list[dict] | None:
+        """Send all articles for a keyword to Gemini for consolidated analysis.
+
+        Returns a list of section dicts, each with headline/summary/sentiment/tickers/article_indices.
+        """
         # Build articles text
         articles_parts = []
         for i, a in enumerate(articles, 1):
@@ -203,12 +236,18 @@ class AIProcessor:
                 text = response.text.strip()
                 data = json.loads(text)
 
-                if not isinstance(data.get("summary"), str) or len(data["summary"]) < 30:
-                    raise ValueError("Summary too short")
-                if data.get("sentiment") not in ("Bullish", "Bearish", "Neutral"):
-                    raise ValueError(f"Invalid sentiment: {data.get('sentiment')}")
+                sections = data.get("sections", [])
+                if not isinstance(sections, list) or len(sections) == 0:
+                    raise ValueError("No sections returned")
 
-                return data
+                # Validate each section
+                for section in sections:
+                    if not isinstance(section.get("summary"), str) or len(section["summary"]) < 30:
+                        raise ValueError(f"Section summary too short: {section.get('headline', '?')}")
+                    if section.get("sentiment") not in ("Bullish", "Bearish", "Neutral"):
+                        raise ValueError(f"Invalid sentiment: {section.get('sentiment')}")
+
+                return sections
 
             except json.JSONDecodeError as e:
                 logger.warning(f"JSON parse error for '{keyword}' (attempt {attempt + 1}): {e}")

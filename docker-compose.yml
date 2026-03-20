@@ -1,0 +1,13 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: market-news
+    restart: unless-stopped
+    ports:
+      - "3004:8000"
+    volumes:
+      - /Users/glen/Documents/appData/market-news:/data
+    env_file:
+      - .env.production

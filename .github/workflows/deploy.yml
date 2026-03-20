@@ -1,0 +1,28 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'docker-compose.yml'
+  workflow_dispatch:
+
+env:
+  DOCKER_HOST: unix:///Users/glen/.colima/default/docker.sock
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy env file
+        run: cp /Users/glen/Documents/Dev/market-news/.env.production .env.production
+
+      - name: Build and deploy
+        run: |
+          export PATH="/opt/homebrew/bin:$PATH"
+          docker compose build
+          docker compose down
+          docker compose up -d
